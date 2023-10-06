@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Variância de Allan - IPT/LME</title>
+    <link rel="stylesheet" crossorigin="anonymous" href="uPlot.min.css">
+    <link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <script type="text/javascript" src="sample-data.js"></script>
+    <script type="text/javascript" src="workers-pool.js"></script>
+
+  </head>
+  <body>
+  <script src="uPlot.iife.min.js"></script>
+
+  <section id="app" class="section" style="display: none;">
+    <div class="container">
+
+      <h1 class="title">
+        Calculadora de Variância de Allan
+      </h1>
+
+      <div class="field">
+        <label class="label">Frequência (Hz)</label>
+        <div class="control">
+          <input class="input" type="text" v-model="nominalValue" type="number">
+        </div>
+      </div>
+
+      <div>
+        <label class="label">Leituras</label>
+        <textarea class="textarea" v-model="readouts"></textarea>
+      </div>
+
+      <div class="mt-2">
+        <label class="label">Taus</label>
+
+
+        <ol class="m-2">
+          <li v-for="(tau, tau_index) in taus" :key="tau_index" style="display: flex;">
+
+            <div class="field has-addons m-0">
+              <p class="control">
+                <input class="input is-small" type="text" v-model="tau" style="width: 120px;">
+              </p>
+              <p class="control">
+                <a class="button is-static is-small">
+                  (s)
+                </a>
+              </p>
+            </div>
+            
+            
+            <button
+              class="button m-0 is-small is-danger is-inverted"
+              v-if="tau_index !== 0"
+              @click="taus.splice(tau_index, 1)">remover
+            </button>
+
+          </li>
+        </ol>
+        
+        <div class="m-2">
+          <button class="button is-link" @click="taus.push(taus[taus.length-1]*10)">Adicionar 𝜏</button>
+        </div>
+
+      </div>
+
+      <div class="mt-2">
+        <button 
+          class="button is-large is-fullwidth is-primary"
+          @click="calc"
+          :class="{'is-loading': isProcessing}"
+          >Calcular Desvios de Allan
+        </button>
+      </div>
+
+      <div v-if="allanDevs && allanDevs.length" class="columns is-mobile is-centered">
+        <div class="column is-half">
+
+          <div class="m-2">
+            <table class="table is-bordered is-fullwidth">
+              <thead>
+                <tr>
+                  <th>Tau (𝜏)</th>
+                  <th>Sigma (σ)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, si) in allanDevs" :key="si">
+                  <td>{{taus[si]}}</td>
+                  <td>{{(s).toExponential(4)}}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+
+
+      <!-- {{fractionalFrequency}} -->
+    </div>
+
+    <div ref="chart"></div>
+
+    <button class="button is-large is-primary" v-if="this.uLog" @click=toImg>Download</button>
+  </section>
+
+  <script type="module">
+    import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+
+    createApp({
+      watch: {
+      },
+      data() {
+        return {
+          message: '...',
+          readouts: '',
+          nominalValue: 10e6,
+          // taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
+          taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+          uLog: null,
+          averageWindows: null,
+          diffsSquareSum: undefined,
+          nReadouts: null,
+          allanVars: null,
+          allanDevs: null,
+          isProcessing: false
+        }
+      },
+      mounted () {
+        this.readouts = SAMPLE_DATA_01
+        console.log(this.$refs['chart'])
+        document.getElementById('app').style.display = 'unset'
+      },
+      computed: {
+      },
+      methods: {
+        toImg () {
+          queueMicrotask(() => {
+            let pxRatio = devicePixelRatio;
+
+            let rect = window.uLog.root.getBoundingClientRect();
+            // rect of uPlot's canvas to get y shift due to title above it (if any)
+            let rect2 = window.uLog.ctx.canvas.getBoundingClientRect();
+
+            let htmlContent = window.uLog.root.outerHTML;
+
+            let uPlotCssRules = document.styleSheets[0].cssRules;
+            let cssContent = "";
+            for (let { cssText } of uPlotCssRules)
+              cssContent += `${cssText} `;
+
+            let width = Math.ceil(rect.width * pxRatio);
+            let height = Math.ceil(rect.height * pxRatio);
+
+            let viewBox = `0 0 ${Math.ceil(rect.width)} ${Math.ceil(rect.height)}`;
+
+            let svgText = `
+              <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}">
+                <style>
+                  body { margin: 0; padding: 0; }
+                  ${cssContent}
+                </style>
+                <foreignObject width="100%" height="100%">
+                  <body xmlns="http://www.w3.org/1999/xhtml">${htmlContent}</body>
+                </foreignObject>
+              </svg>
+            `;
+
+            let can = document.createElement('canvas');
+            let ctx = can.getContext('2d');
+            can.width = width;
+            can.height = height;
+            can.style.width = Math.ceil(rect.width) + "px";
+            can.style.height = Math.ceil(rect.height) + "px";
+            // document.body.appendChild(can);
+
+            let DOMURL = window.URL || window.webkitURL;
+
+            let img = new Image();
+            let blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+            let url = DOMURL.createObjectURL(blob);
+
+            ctx.drawImage(window.uLog.ctx.canvas, 0, (rect2.top - rect.top) * pxRatio);
+
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0);
+              DOMURL.revokeObjectURL(url);
+            };
+
+            img.src = url;
+
+            // download
+            const link = document.createElement('a');
+            link.download = 'filename.png';
+            link.href = window.uLog.ctx.canvas.toDataURL()
+            link.click();
+          });
+        },
+        calc () {
+          this.isProcessing = true
+          let res = []
+
+          let parsed = this.readouts
+          .trim()
+          .split('\n')
+          .map(x => x.replace(',', '.'))
+          .map(x => parseFloat(x))
+          .filter(x => !isNaN(x))
+
+          let fractionalFrequency = parsed.map(x => (x*10e6-this.nominalValue*10e6)/this.nominalValue*10e6)
+          
+          let expensiveFun = (tau, fractionalFrequency) => {
+            let res = []
+            for (let i = 0; i <= fractionalFrequency.length-tau; i++) {
+              let sum = 0
+              let count = 0
+              var j
+              for (j = i; j < tau+i; j++) {
+                sum += fractionalFrequency[j]
+                count++
+              }
+              let averageWin = sum/count
+              // let win = this.fractionalFrequency.slice(0+i, tau+i)
+              // let averageWin = win.reduce((a, c) => a+c)/win.length
+              res.push(averageWin)
+            }
+            return res
+          }
+
+          let args = this.taus.map((tau) => [tau, fractionalFrequency])
+
+          let wp = new WorkersPool(expensiveFun)
+
+          wp.run(args)
+          .then(res => {
+            // console.log(res)
+            this.averageWindows = res
+
+            this.diffsSquare = this.averageWindows.map(averageWin => {
+              let diffsSquareArr = []
+              for (let i = 1; i < averageWin.length; i++) {
+                let diff = averageWin[i]-averageWin[i-1]
+                diffsSquareArr.push(diff*diff)
+              }
+              return diffsSquareArr
+            })
+
+            this.diffsSquareSum = this.diffsSquare.map(x => x.reduce((a, c) => a+c, 0))
+            this.nReadouts = parsed.length
+            this.allanVars = this.diffsSquareSum.map(x => x/(2*(this.nReadouts-1)))
+            this.allanDevs = this.allanVars.map(x => Math.sqrt(x))
+
+            this.plot()
+            window.setTimeout(() => {
+              this.isProcessing = false
+            }, 200)
+
+          })
+        },
+        plot () {
+          // log scales cannot contain 0, so turn any 0s into 1s
+
+          let toSups = (u, vals) => {
+            const sups = '⁰¹²³⁴⁵⁶⁷⁸⁹'.split('')
+            return vals.map(v => {
+              if (!v) return v
+              let expStr = v.toExponential()
+              let splited = expStr.split('e')
+              let isNeg = splited[1].includes('-')
+              let exp = splited[1].replace('+', '').replace('-', '')
+              let n = splited[0]
+              if (n !== '1') return ''
+              return '10'+(isNeg ? '⁻' : '')+sups[+exp]
+            })
+          }
+
+          const optsLog = {
+            ...getSize(),
+            // width: 600,
+            // height: 600,
+            // padding: [null,30,10,0],
+            title: "Frequency Stability",
+            scales: {
+              x: {
+                distr: 3,
+                time: false
+              },
+              y: {
+                distr: 3,
+              }
+            },
+            axes: [
+              {
+                size: 60,
+                space: 15,
+                values: toSups,
+                label: "Averaging Time, 𝜏, Seconds",
+
+
+              },
+              {
+                size: 60,
+                space: 15,
+                values: toSups,
+                label: "Overlapping Allan Deviation, σᵧ(𝜏)",
+
+              }
+            ],
+            series: [
+              {},
+              {
+                label: "tau",
+                stroke: "red",
+                spanGaps: true,
+              }
+            ],
+          };
+
+          let data = [
+            Array.from(this.taus),
+            this.allanDevs.map(x => x),
+          ]
+
+          if (this.uLog) this.uLog.destroy()
+          this.uLog = new uPlot(optsLog, data, this.$refs['chart']);
+
+          window.uLog = this.uLog
+          // draw IPT logo
+          drawLogo()
+
+        }
+      }
+    }).mount('#app')
+
+    function drawLogo () {
+      if (!window.uLog) return
+      if (!window.uLog.ctx) return
+
+      const drawImage = (url) => {
+        let ctx = window.uLog.ctx
+        const image = new Image();
+        image.src = url;
+        console.log(ctx.width)
+        let pad = 20
+        image.onload = () => {
+          
+          let x = window.uLog.bbox.width+window.uLog.bbox.left-image.width - pad
+          let y = window.uLog.bbox.top + pad
+          let w = image.width
+          let h = image.height
+
+          ctx.beginPath();
+          ctx.lineWidth = "1";
+          ctx.strokeStyle = "black";
+          ctx.rect(x-3, y-3, w+6, h+6);
+          ctx.stroke();
+          
+          ctx.drawImage(
+            image,
+            x,
+            y
+          )
+        }
+      }
+      drawImage('./logo_IPT.jpg')
+    }
+
+    function getSize() {
+      return {
+        width: window.innerWidth - 100,
+        height: window.innerHeight - 150,
+      }
+    }
+
+    window.addEventListener("resize", e => {
+      if (window.uLog)
+      window.uLog.setSize(getSize());
+      drawLogo()
+    });
+
+  </script>
+
+  </body>
+</html>
