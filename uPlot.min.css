@@ -10,3 +10,9 @@
 .u-legend {
 	display: none;
 }
+
+.u-title {
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+}

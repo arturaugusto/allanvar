@@ -61,7 +61,7 @@
         </ol>
         
         <div class="m-2">
-          <button class="button is-link" @click="taus.push(taus[taus.length-1]*10)">Adicionar 𝜏</button>
+          <button class="button is-link" @click="taus.push(undefined)">Adicionar 𝜏</button>
         </div>
 
       </div>
@@ -118,8 +118,8 @@
           message: '...',
           readouts: '',
           nominalValue: 10e6,
-          // taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
-          taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+          taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
+          // taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
           uLog: null,
           averageWindows: null,
           diffsSquareSum: undefined,
@@ -131,7 +131,6 @@
       },
       mounted () {
         this.readouts = SAMPLE_DATA_01
-        console.log(this.$refs['chart'])
         document.getElementById('app').style.display = 'unset'
       },
       computed: {
@@ -210,14 +209,14 @@
           .map(x => parseFloat(x))
           .filter(x => !isNaN(x))
 
-          let fractionalFrequency = parsed.map(x => (x*10e6-this.nominalValue*10e6)/this.nominalValue*10e6)
+          let fractionalFrequency = parsed.map(x => (x-this.nominalValue)/this.nominalValue)
           
           let expensiveFun = (tau, fractionalFrequency) => {
             let res = []
             for (let i = 0; i <= fractionalFrequency.length-tau; i++) {
               let sum = 0
               let count = 0
-              var j
+              let j
               for (j = i; j < tau+i; j++) {
                 sum += fractionalFrequency[j]
                 count++
@@ -263,17 +262,18 @@
         plot () {
           // log scales cannot contain 0, so turn any 0s into 1s
 
-          let toSups = (u, vals) => {
+          let toSups = (u, vals, factor) => {
+            factor = factor || 1
             const sups = '⁰¹²³⁴⁵⁶⁷⁸⁹'.split('')
             return vals.map(v => {
               if (!v) return v
-              let expStr = v.toExponential()
+              let expStr = (v/factor).toExponential()
               let splited = expStr.split('e')
               let isNeg = splited[1].includes('-')
-              let exp = splited[1].replace('+', '').replace('-', '')
+              let expJoin = splited[1].replace('+', '').replace('-', '').split('').map(exp => sups[+exp]).join('')
               let n = splited[0]
               if (n !== '1') return ''
-              return '10'+(isNeg ? '⁻' : '')+sups[+exp]
+              return '10'+(isNeg ? '⁻' : '')+expJoin
             })
           }
 
@@ -298,19 +298,22 @@
                 space: 15,
                 values: toSups,
                 label: "Averaging Time, 𝜏, Seconds",
-
-
+                font: 'bold 16px arial',
+                labelFont: 'bold 18px arial'
               },
               {
                 size: 60,
                 space: 15,
-                values: toSups,
+                values: (u, vals) => toSups(u, vals, 1e12),
                 label: "Overlapping Allan Deviation, σᵧ(𝜏)",
-
+                font: 'bold 16px arial',
+                labelFont: 'bold 18px arial'
               }
             ],
             series: [
-              {},
+              {
+
+              },
               {
                 label: "tau",
                 stroke: "red",
@@ -321,8 +324,9 @@
 
           let data = [
             Array.from(this.taus),
-            this.allanDevs.map(x => x),
+            this.allanDevs.map(x => x*1e12),
           ]
+          console.log(data)
 
           if (this.uLog) this.uLog.destroy()
           this.uLog = new uPlot(optsLog, data, this.$refs['chart']);
@@ -343,7 +347,6 @@
         let ctx = window.uLog.ctx
         const image = new Image();
         image.src = url;
-        console.log(ctx.width)
         let pad = 20
         image.onload = () => {
           
