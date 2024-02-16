@@ -41,7 +41,7 @@
 
             <div class="field has-addons m-0">
               <p class="control">
-                <input class="input is-small" type="text" v-model="tau" style="width: 120px;">
+                <input class="input is-small" type="text" v-model="taus[tau_index]" style="width: 120px;">
               </p>
               <p class="control">
                 <a class="button is-static is-small">
@@ -53,7 +53,7 @@
             
             <button
               class="button m-0 is-small is-danger is-inverted"
-              v-if="tau_index !== 0"
+              v-if="tau_index > 1"
               @click="taus.splice(tau_index, 1)">remover
             </button>
 
@@ -61,7 +61,8 @@
         </ol>
         
         <div class="m-2">
-          <button class="button is-link" @click="taus.push(undefined)">Adicionar 𝜏</button>
+          <button class="button is-link" @click="taus.push(Math.round(2*taus[taus.length-1]))">Adicionar 𝜏</button>
+          <!-- <button class="button is-link" @click="taus.push(1)">Adicionar 𝜏</button> -->
         </div>
 
       </div>
@@ -102,9 +103,12 @@
       <!-- {{fractionalFrequency}} -->
     </div>
 
-    <div ref="chart"></div>
+    <div ref="chartLog"></div>
+    <button class="button is-large is-primary" v-if="this.uLog" @click="toImg('uLog', 'taus.png')">Download</button>
+    
+    <div ref="chartFract" class="mt-6"></div>
+    <button class="button is-large is-primary" v-if="this.uFract" @click="toImg('uFract', 'reads.png')">Download</button>
 
-    <button class="button is-large is-primary" v-if="this.uLog" @click=toImg>Download</button>
   </section>
 
   <script type="module">
@@ -118,14 +122,18 @@
           message: '...',
           readouts: '',
           nominalValue: 10e6,
-          taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
+          // taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
           // taus: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+          // taus: [1, 2, 4, 8, 16, 32, 64, 128],
+          taus: [1, 2, 4],
           uLog: null,
+          uFract: null,
           averageWindows: null,
           diffsSquareSum: undefined,
           nReadouts: null,
           allanVars: null,
           allanDevs: null,
+          fractionalFrequency: null,
           isProcessing: false
         }
       },
@@ -136,15 +144,15 @@
       computed: {
       },
       methods: {
-        toImg () {
+        toImg (target, fileName) {
           queueMicrotask(() => {
             let pxRatio = devicePixelRatio;
 
-            let rect = window.uLog.root.getBoundingClientRect();
+            let rect = window[target].root.getBoundingClientRect();
             // rect of uPlot's canvas to get y shift due to title above it (if any)
-            let rect2 = window.uLog.ctx.canvas.getBoundingClientRect();
+            let rect2 = window[target].ctx.canvas.getBoundingClientRect();
 
-            let htmlContent = window.uLog.root.outerHTML;
+            let htmlContent = window[target].root.outerHTML;
 
             let uPlotCssRules = document.styleSheets[0].cssRules;
             let cssContent = "";
@@ -182,7 +190,7 @@
             let blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
             let url = DOMURL.createObjectURL(blob);
 
-            ctx.drawImage(window.uLog.ctx.canvas, 0, (rect2.top - rect.top) * pxRatio);
+            ctx.drawImage(window[target].ctx.canvas, 0, (rect2.top - rect.top) * pxRatio);
 
             img.onload = () => {
               ctx.drawImage(img, 0, 0);
@@ -193,8 +201,8 @@
 
             // download
             const link = document.createElement('a');
-            link.download = 'filename.png';
-            link.href = window.uLog.ctx.canvas.toDataURL()
+            link.download = fileName;
+            link.href = window[target].ctx.canvas.toDataURL()
             link.click();
           });
         },
@@ -210,6 +218,7 @@
           .filter(x => !isNaN(x))
 
           let fractionalFrequency = parsed.map(x => (x-this.nominalValue)/this.nominalValue)
+          this.fractionalFrequency = fractionalFrequency
           
           let expensiveFun = (tau, fractionalFrequency) => {
             let res = []
@@ -226,6 +235,7 @@
               // let averageWin = win.reduce((a, c) => a+c)/win.length
               res.push(averageWin)
             }
+            // console.log(res)
             return res
           }
 
@@ -238,18 +248,21 @@
             // console.log(res)
             this.averageWindows = res
 
-            this.diffsSquare = this.averageWindows.map(averageWin => {
+            this.diffsSquare = this.averageWindows.map((averageWin, tauIndex) => {
               let diffsSquareArr = []
-              for (let i = 1; i < averageWin.length; i++) {
-                let diff = averageWin[i]-averageWin[i-1]
+              let tau = this.taus[tauIndex]
+              for (let i = 0; i < averageWin.length-tau; i++) {
+                let diff = averageWin[i+tau]-averageWin[i]
                 diffsSquareArr.push(diff*diff)
               }
+              // console.log(diffsSquareArr)
               return diffsSquareArr
             })
 
             this.diffsSquareSum = this.diffsSquare.map(x => x.reduce((a, c) => a+c, 0))
             this.nReadouts = parsed.length
-            this.allanVars = this.diffsSquareSum.map(x => x/(2*(this.nReadouts-1)))
+            this.allanVars = this.diffsSquareSum
+            .map((x, tauIndex) => x/(2*(this.nReadouts-(2*this.taus[tauIndex])+1)))
             this.allanDevs = this.allanVars.map(x => Math.sqrt(x))
 
             this.plot()
@@ -277,12 +290,21 @@
             })
           }
 
+          /////////////////// tau chart
+
           const optsLog = {
             ...getSize(),
             // width: 600,
             // height: 600,
             // padding: [null,30,10,0],
             title: "Frequency Stability",
+            hooks: {
+              drawSeries: [
+                u => {
+                  drawLogo('uLog')
+                }
+              ]
+            },
             scales: {
               x: {
                 distr: 3,
@@ -329,29 +351,91 @@
           console.log(data)
 
           if (this.uLog) this.uLog.destroy()
-          this.uLog = new uPlot(optsLog, data, this.$refs['chart']);
+          this.uLog = new uPlot(optsLog, data, this.$refs['chartLog']);
 
           window.uLog = this.uLog
-          // draw IPT logo
-          drawLogo()
 
+
+
+          ////////////// Fractional Frequency (yi) chart
+
+
+          const optsFract = {
+            ...getSize(),
+            // width: 600,
+            // height: 600,
+            padding: [null,null,null,40],
+            title: "Frequency Stability",
+            scales: {
+              x: {
+                time: false
+              },
+              y: {
+              }
+            },
+            hooks: {
+              drawSeries: [
+                u => {
+                  drawLogo('uFract')
+                }
+              ]
+            },
+            axes: [
+              {
+                label: "N",
+                font: 'bold 16px arial',
+                labelFont: 'bold 18px arial',
+              },
+              {
+                // values: (u, vals) => toSups(u, vals, 1e12),
+                values: (u, vals) => vals.map(x => (x/1e12).toExponential(2)),
+                // values: (u, vals) => vals.map(x => x),
+                label: "Fractional Frequency (yi)",
+                font: 'bold 16px arial',
+                labelFont: 'bold 18px arial',
+                labelGap: 40,
+                // labelSize: 8 + 12 + 8,
+              }
+            ],
+            series: [
+              {
+
+              },
+              {
+                label: "",
+                stroke: "blue",
+                spanGaps: true,
+              }
+            ],
+          };
+
+          let data2 = [
+            this.fractionalFrequency.map((_, i) => i+1),
+            this.fractionalFrequency.map(x => x*1e12),
+          ]
+          // console.log(data2)
+
+          if (this.uFract) this.uFract.destroy()
+          this.uFract = new uPlot(optsFract, data2, this.$refs['chartFract']);
+
+          window.uFract = this.uFract
         }
       }
     }).mount('#app')
 
-    function drawLogo () {
-      if (!window.uLog) return
-      if (!window.uLog.ctx) return
+    function drawLogo (target) {
+      if (!window[target]) return
+      if (!window[target].ctx) return
 
       const drawImage = (url) => {
-        let ctx = window.uLog.ctx
+        let ctx = window[target].ctx
         const image = new Image();
         image.src = url;
         let pad = 20
         image.onload = () => {
           
-          let x = window.uLog.bbox.width+window.uLog.bbox.left-image.width - pad
-          let y = window.uLog.bbox.top + pad
+          let x = window[target].bbox.width+window[target].bbox.left-image.width - pad
+          let y = window[target].bbox.top + pad
           let w = image.width
           let h = image.height
 
@@ -381,7 +465,6 @@
     window.addEventListener("resize", e => {
       if (window.uLog)
       window.uLog.setSize(getSize());
-      drawLogo()
     });
 
   </script>
