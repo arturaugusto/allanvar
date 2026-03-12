@@ -431,7 +431,7 @@
         let ctx = window[target].ctx
         const image = new Image();
         image.src = url;
-        let pad = 20
+        let pad = 5
         image.onload = () => {
           
           let x = window[target].bbox.width+window[target].bbox.left-image.width - pad
