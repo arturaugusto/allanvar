@@ -377,7 +377,8 @@
                 size: 60,
                 space: 15,
                 values: (u, vals) => toSups(u, vals, 1e12),
-                label: "Overlapping Allan Deviation, σᵧ(𝜏)",
+                // label: "Overlapping Allan Deviation, σᵧ(𝜏)",
+                label: "Desvio de Allan com sobreposição, σᵧ(𝜏)",
                 font: 'bold 16px arial',
                 labelFont: 'bold 18px arial'
               }
@@ -443,7 +444,8 @@
                 // values: (u, vals) => toSups(u, vals, 1e12),
                 values: (u, vals) => vals.map(x => (x/1e12).toExponential(2)),
                 // values: (u, vals) => vals.map(x => x),
-                label: "Fractional Frequency (yi)",
+                // label: "Fractional Frequency (yi)",
+                label: "Frequência Fracionária (yi)",
                 font: 'bold 16px arial',
                 labelFont: 'bold 18px arial',
                 labelGap: 40,
