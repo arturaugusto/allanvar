@@ -114,6 +114,53 @@
   <script type="module">
     import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
 
+    function multilineAxisLabelsPlugin() {
+      return {
+        hooks: {
+          drawAxes: (u) => {
+            const ctx = u.ctx;
+
+            u.axes.forEach((axis, i) => {
+              if (!axis.label || !axis.label.includes("\n")) return;
+
+              const lines = axis.label.split("\n");
+
+              ctx.save();
+              ctx.font = 'bold 16px arial';
+              ctx.fillStyle = axis.labelColor;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+
+              const lineHeight = 18;
+
+              if (i === 0) { // X axis
+                const x = u.bbox.left + u.bbox.width / 2;
+                const y = u.bbox.top + u.bbox.height + (axis.labelGap || 30);
+
+                lines.forEach((line, j) => {
+                  ctx.fillText(line, x, y + j * lineHeight);
+                });
+              }
+
+              if (i === 1) { // Y axis
+                const x = u.bbox.left - (axis.labelGap || 30);
+                const y = u.bbox.top + u.bbox.height / 2;
+
+                ctx.translate(x, y);
+                ctx.rotate(-Math.PI / 2);
+
+                lines.forEach((line, j) => {
+                  ctx.fillText(line, 0, j * lineHeight);
+                });
+              }
+
+              ctx.restore();
+            });
+          }
+        }
+      };
+    }
+
     createApp({
       watch: {
       },
@@ -294,10 +341,11 @@
 
           const optsLog = {
             ...getSize(),
+            plugins: [multilineAxisLabelsPlugin()],
             // width: 600,
             // height: 600,
             // padding: [null,30,10,0],
-            title: "Frequency Stability",
+            title: "Estabilidade de Frequência",
             hooks: {
               drawSeries: [
                 u => {
@@ -319,9 +367,11 @@
                 size: 60,
                 space: 15,
                 values: toSups,
-                label: "Averaging Time, 𝜏, Seconds",
+                label: `Tempo médio, 𝜏 , segundos\nIntervalo de medição 𝜏₀ = ${this.taus[0]} s`,
                 font: 'bold 16px arial',
-                labelFont: 'bold 18px arial'
+                labelFont: 'bold 18px arial',
+                labelColor: "black",
+                labelGap: 42
               },
               {
                 size: 60,
@@ -362,10 +412,11 @@
 
           const optsFract = {
             ...getSize(),
+            plugins: [multilineAxisLabelsPlugin()],
             // width: 600,
             // height: 600,
             padding: [null,null,null,40],
-            title: "Frequency Stability",
+            title: "Dados de Frequência Relativa",
             scales: {
               x: {
                 time: false
@@ -382,9 +433,11 @@
             },
             axes: [
               {
-                label: "N",
+                label: `Pontos\nIntervalo de medição 𝜏₀ = ${this.taus[0]} s`,
+                labelColor: "black",
                 font: 'bold 16px arial',
                 labelFont: 'bold 18px arial',
+                labelGap: 42,
               },
               {
                 // values: (u, vals) => toSups(u, vals, 1e12),
